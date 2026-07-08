@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Required for NotificationPusher to make outbound HTTP calls -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -10,6 +13,36 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.NotificationInterceptor" />
+        android:theme="@style/Theme.NotificationInterceptor">
+
+        <!--
+            NotificationListenerService registration.
+
+            android:permission: Restricts binding to callers that hold
+              BIND_NOTIFICATION_LISTENER_SERVICE — in practice only the Android system.
+            android:exported="true": Required so the system process (a different UID)
+              can bind to this service. The permission above ensures no third-party app
+              can bind directly.
+            The <meta-data> tag is required by some OEM launchers / Android versions to
+              properly recognise the service as a notification listener.
+        -->
+        <service
+            android:name=".service.AppNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+
+            <!-- Optional: restricts listener to notifications from all apps (default behaviour) -->
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting" />
+
+        </service>
+
+    </application>
 
 </manifest>

@@ -56,8 +56,12 @@ dependencies {
     ksp(libs.room.compiler)                 // Annotation processor (replaces kapt)
     androidTestImplementation(libs.room.testing)
 
-    // ── JSON serialization (used by TypeConverters) ───────────────────────────
+    // ── JSON serialization (used by TypeConverters & NotificationPusher) ─────
     implementation(libs.gson)
+
+    // ── OkHttp ───────────────────────────────────────────────────────────────
+    implementation(libs.okhttp)
+    debugImplementation(libs.okhttp.logging)   // logs request/response; debug builds only
 
     // ── Test ─────────────────────────────────────────────────────────────────
     testImplementation(libs.junit)
