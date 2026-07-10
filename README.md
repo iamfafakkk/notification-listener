@@ -6,7 +6,7 @@
 
 ## Demo
 
-<video controls src="demo.mp4" title="Title"></video>
+![alt text](demo.gif)
 
 ## Webhook Result Example
 
