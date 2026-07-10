@@ -109,6 +109,7 @@ fun postDummyNotification(context: Context) {
 @Composable
 fun MainScreen(
     onAddRuleClick: () -> Unit,
+    onRuleClick: (InterceptRule) -> Unit,
     viewModel: RulesViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -198,7 +199,8 @@ fun MainScreen(
                 items(rules, key = { it.id }) { rule ->
                     RuleCard(
                         rule = rule,
-                        onDeleteClick = { showDeleteDialog = rule }
+                        onDeleteClick = { showDeleteDialog = rule },
+                        onHistoryClick = { onRuleClick(rule) }
                     )
                 }
             }
@@ -418,7 +420,11 @@ private fun SectionHeader(title: String, count: Int) {
 }
 
 @Composable
-private fun RuleCard(rule: InterceptRule, onDeleteClick: () -> Unit) {
+private fun RuleCard(
+    rule: InterceptRule,
+    onDeleteClick: () -> Unit,
+    onHistoryClick: () -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -449,6 +455,9 @@ private fun RuleCard(rule: InterceptRule, onDeleteClick: () -> Unit) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+                IconButton(onClick = onHistoryClick) {
+                    Icon(Icons.Default.History, tint = IndigoLight, contentDescription = "History")
                 }
                 IconButton(onClick = onDeleteClick) {
                     Icon(Icons.Default.Delete, tint = ErrorRed.copy(alpha = 0.7f), contentDescription = "Delete")

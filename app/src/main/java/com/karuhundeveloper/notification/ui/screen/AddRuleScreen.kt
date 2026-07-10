@@ -4,8 +4,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -20,12 +25,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -33,6 +40,7 @@ import com.google.gson.reflect.TypeToken
 import com.karuhundeveloper.notification.data.local.entity.InterceptRule
 import com.karuhundeveloper.notification.ui.component.MethodBadge
 import com.karuhundeveloper.notification.ui.theme.*
+import com.karuhundeveloper.notification.ui.viewmodel.AppPickerViewModel
 import com.karuhundeveloper.notification.ui.viewmodel.RulesViewModel
 
 private val HTTP_METHODS = listOf("POST", "GET", "PUT", "PATCH", "DELETE")
@@ -42,14 +50,21 @@ private val gson = Gson()
 @Composable
 fun AddRuleScreen(
     onNavigateBack: () -> Unit,
-    viewModel: RulesViewModel = viewModel()
+    viewModel: RulesViewModel = viewModel(),
+    appPickerViewModel: AppPickerViewModel = viewModel()
 ) {
     // ── Form state ────────────────────────────────────────────────────────────
     var ruleName by remember { mutableStateOf("") }
-    var targetApps by remember { mutableStateOf("") }
+    var selectedApps by remember { mutableStateOf<Set<String>>(emptySet()) }
     var apiUrl by remember { mutableStateOf("") }
     var selectedMethod by remember { mutableStateOf("POST") }
     var customHeaders by remember { mutableStateOf("") }
+
+    // ── App Picker state ──────────────────────────────────────────────────────
+    val allApps by appPickerViewModel.installedApps.collectAsStateWithLifecycle()
+    val isAppsLoading by appPickerViewModel.isLoading.collectAsStateWithLifecycle()
+    var appSearchQuery by remember { mutableStateOf("") }
+    var showAppPicker by remember { mutableStateOf(false) }
 
     // ── Validation error state ────────────────────────────────────────────────
     var ruleNameError by remember { mutableStateOf<String?>(null) }
@@ -68,8 +83,8 @@ fun AddRuleScreen(
 
         ruleNameError = if (ruleName.isBlank()) { ok = false; "Rule name is required" } else null
 
-        targetAppsError = if (targetApps.isBlank()) {
-            ok = false; "At least one package name is required"
+        targetAppsError = if (selectedApps.isEmpty()) {
+            ok = false; "At least one app must be selected"
         } else null
 
         apiUrlError = when {
@@ -95,11 +110,6 @@ fun AddRuleScreen(
     fun onSave() {
         if (!validate()) return
 
-        val parsedApps = targetApps
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-
         val parsedHeaders: Map<String, String> = if (customHeaders.isBlank()) {
             emptyMap()
         } else {
@@ -110,7 +120,7 @@ fun AddRuleScreen(
         viewModel.insertRule(
             InterceptRule(
                 ruleName = ruleName.trim(),
-                targetApps = parsedApps,
+                targetApps = selectedApps.toList(),
                 apiUrl = apiUrl.trim(),
                 apiMethod = selectedMethod,
                 customHeaders = parsedHeaders
@@ -178,20 +188,29 @@ fun AddRuleScreen(
 
             // ── Target Apps ───────────────────────────────────────────────────
             FormSection(title = "Target Apps", icon = Icons.Default.Apps) {
-                RuleTextField(
-                    value = targetApps,
-                    onValueChange = { targetApps = it; targetAppsError = null },
-                    label = "Package Names (comma-separated)",
-                    placeholder = "com.whatsapp, com.telegram.messenger",
-                    error = targetAppsError,
-                    imeAction = ImeAction.Next,
-                    capitalization = KeyboardCapitalization.None
+                AppSelector(
+                    selectedApps = selectedApps,
+                    onOpenPicker = { showAppPicker = true },
+                    onRemoveApp = { pkg -> selectedApps = selectedApps - pkg },
+                    isError = targetAppsError != null
                 )
-                Spacer(Modifier.height(4.dp))
+
+                AnimatedVisibility(visible = targetAppsError != null, enter = fadeIn() + expandVertically()) {
+                    targetAppsError?.let {
+                        Row(
+                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(it, fontSize = 11.sp, color = ErrorRed)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "💡  To test the pipeline, enter \"${
-                        androidx.compose.ui.platform.LocalContext.current.packageName
-                    }\" as the target app and use the Send Dummy button.",
+                    "💡  To test the pipeline, select this app and use the Send Dummy button.",
                     fontSize = 11.sp,
                     color = TextSecondary,
                     lineHeight = 16.sp
@@ -302,6 +321,24 @@ fun AddRuleScreen(
             Spacer(Modifier.height(32.dp))
         }
     }
+
+    if (showAppPicker) {
+        AppPickerDialog(
+            allApps = allApps,
+            isLoading = isAppsLoading,
+            selectedApps = selectedApps,
+            searchQuery = appSearchQuery,
+            onSearchQueryChange = { appSearchQuery = it },
+            onToggleApp = { pkg ->
+                selectedApps = if (pkg in selectedApps) selectedApps - pkg else selectedApps + pkg
+                targetAppsError = null
+            },
+            onDismiss = {
+                showAppPicker = false
+                appSearchQuery = ""
+            }
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -395,4 +432,204 @@ private fun RuleTextField(
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppSelector(
+    selectedApps: Set<String>,
+    onOpenPicker: () -> Unit,
+    onRemoveApp: (String) -> Unit,
+    isError: Boolean
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NavyElevated)
+            .border(
+                width = 1.dp,
+                color = if (isError) ErrorRed else Divider,
+                shape = RoundedCornerShape(12.dp)
+            )
+            .clickable { onOpenPicker() }
+            .padding(12.dp)
+    ) {
+        if (selectedApps.isEmpty()) {
+            Text(
+                "Tap to select target apps...",
+                color = TextSecondary.copy(alpha = 0.6f),
+                fontSize = 14.sp
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                selectedApps.forEach { pkg ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onRemoveApp(pkg) },
+                        label = {
+                            Text(
+                                pkg.substringAfterLast('.'),
+                                fontSize = 12.sp,
+                                color = TextPrimary
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Remove",
+                                modifier = Modifier.size(14.dp),
+                                tint = TextSecondary
+                            )
+                        },
+                        colors = InputChipDefaults.inputChipColors(
+                            containerColor = NavyDeep,
+                            labelColor = TextPrimary
+                        ),
+                        border = InputChipDefaults.inputChipBorder(
+                            selected = true,
+                            enabled = true,
+                            borderColor = Divider,
+                            borderWidth = 1.dp,
+                            selectedBorderColor = IndigoAccent,
+                            selectedBorderWidth = 1.dp
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppPickerDialog(
+    allApps: List<com.karuhundeveloper.notification.ui.viewmodel.AppInfoItem>,
+    isLoading: Boolean,
+    selectedApps: Set<String>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onToggleApp: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val filteredApps = remember(allApps, searchQuery) {
+        if (searchQuery.isBlank()) allApps
+        else allApps.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+                    it.packageName.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.95f)
+            .fillMaxHeight(0.8f),
+        content = {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = NavyCard,
+                tonalElevation = 6.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Select Target Apps",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search apps...", color = TextSecondary) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = IndigoLight) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchQueryChange("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear", tint = TextSecondary)
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ruleTextFieldColors(),
+                        singleLine = true
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    if (isLoading && allApps.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = IndigoAccent)
+                        }
+                    } else if (filteredApps.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text("No apps found", color = TextSecondary)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(filteredApps, key = { it.packageName }) { app ->
+                                val isSelected = app.packageName in selectedApps
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSelected) IndigoAccent.copy(alpha = 0.15f) else Color.Transparent)
+                                        .clickable { onToggleApp(app.packageName) }
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(NavyElevated),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            app.name.firstOrNull()?.toString() ?: "?",
+                                            color = IndigoLight,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(app.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        Text(app.packageName, color = TextSecondary, fontSize = 11.sp)
+                                    }
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { onToggleApp(app.packageName) },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = IndigoAccent,
+                                            uncheckedColor = Divider
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text("Done", color = IndigoAccent, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    )
 }

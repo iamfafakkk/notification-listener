@@ -6,7 +6,9 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.karuhundeveloper.notification.data.local.converter.Converters
+import com.karuhundeveloper.notification.data.local.dao.InterceptHistoryDao
 import com.karuhundeveloper.notification.data.local.dao.InterceptRuleDao
+import com.karuhundeveloper.notification.data.local.entity.InterceptHistory
 import com.karuhundeveloper.notification.data.local.entity.InterceptRule
 
 /**
@@ -24,14 +26,15 @@ import com.karuhundeveloper.notification.data.local.entity.InterceptRule
  * via a Repository that injects a [CoroutineDispatcher]).
  */
 @Database(
-    entities = [InterceptRule::class],
-    version = 1,
+    entities = [InterceptRule::class, InterceptHistory::class],
+    version = 2,
     exportSchema = true          // keeps a JSON schema history in app/schemas/ for migration audits
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun interceptRuleDao(): InterceptRuleDao
+    abstract fun interceptHistoryDao(): InterceptHistoryDao
 
     companion object {
         private const val DATABASE_NAME = "notification_interceptor.db"
@@ -57,8 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME
             )
-                // Add Migration objects here as the schema evolves, e.g.:
-                // .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigration()
                 .build()
         }
     }

@@ -7,6 +7,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.karuhundeveloper.notification.data.local.AppDatabase
+import com.karuhundeveloper.notification.data.local.entity.InterceptHistory
 import com.karuhundeveloper.notification.data.local.entity.InterceptRule
 import com.karuhundeveloper.notification.data.model.NotificationPayload
 import com.karuhundeveloper.notification.network.NotificationPusher
@@ -171,28 +172,51 @@ class AppNotificationListener : NotificationListenerService() {
      */
     private suspend fun dispatchPush(rule: InterceptRule, payload: NotificationPayload) {
         Log.d(TAG, "Pushing for rule '${rule.ruleName}' → ${rule.apiUrl}")
+        var isSuccess = false
+        var statusCode: Int? = null
+        var errorMessage: String? = null
+
         try {
             when (val result = pusher.push(rule, payload)) {
-                is PushResult.Success -> Log.i(
-                    TAG,
-                    "✅ Rule '${rule.ruleName}': delivered (HTTP ${result.statusCode})"
-                )
-                is PushResult.HttpError -> Log.w(
-                    TAG,
-                    "⚠️ Rule '${rule.ruleName}': HTTP ${result.statusCode} — ${result.errorBody}"
-                )
-                is PushResult.NetworkError -> Log.e(
-                    TAG,
-                    "❌ Rule '${rule.ruleName}': network error — ${result.cause.message}",
-                    result.cause
-                )
-                is PushResult.UnsupportedMethod -> Log.e(
-                    TAG,
-                    "❌ Rule '${rule.ruleName}': unsupported method '${result.method}'"
-                )
+                is PushResult.Success -> {
+                    isSuccess = true
+                    statusCode = result.statusCode
+                    Log.i(TAG, "✅ Rule '${rule.ruleName}': delivered (HTTP ${result.statusCode})")
+                }
+                is PushResult.HttpError -> {
+                    statusCode = result.statusCode
+                    errorMessage = result.errorBody
+                    Log.w(TAG, "⚠️ Rule '${rule.ruleName}': HTTP ${result.statusCode} — ${result.errorBody}")
+                }
+                is PushResult.NetworkError -> {
+                    errorMessage = result.cause.message
+                    Log.e(TAG, "❌ Rule '${rule.ruleName}': network error — ${result.cause.message}", result.cause)
+                }
+                is PushResult.UnsupportedMethod -> {
+                    errorMessage = "Unsupported method: ${result.method}"
+                    Log.e(TAG, "❌ Rule '${rule.ruleName}': unsupported method '${result.method}'")
+                }
             }
         } catch (e: Exception) {
+            errorMessage = e.message
             Log.e(TAG, "Unexpected error pushing for rule '${rule.ruleName}'", e)
+        } finally {
+            // Record history
+            try {
+                database.interceptHistoryDao().insertHistory(
+                    InterceptHistory(
+                        ruleId = rule.id,
+                        appName = payload.appName,
+                        notificationTitle = payload.notificationTitle,
+                        notificationText = payload.notificationText,
+                        isSuccess = isSuccess,
+                        httpStatusCode = statusCode,
+                        errorMessage = errorMessage
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save history for rule '${rule.ruleName}'", e)
+            }
         }
     }
 
