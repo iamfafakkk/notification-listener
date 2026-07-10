@@ -4,6 +4,14 @@
 
 ---
 
+## Demo
+
+<video controls src="demo.mp4" title="Title"></video>
+
+## Webhook Result Example
+
+![alt text](image.png)
+
 ## ✨ Features
 
 - 🔔 **Real-time interception** — listens to all device notifications via `NotificationListenerService`
@@ -50,17 +58,17 @@ com.karuhundeveloper.notification/
 
 ## 🛠️ Tech Stack
 
-| Layer | Library | Version |
-|---|---|---|
-| UI | Jetpack Compose + Material 3 | BOM `2024.09.00` |
-| Navigation | Navigation Compose | `2.8.1` |
-| ViewModel | Lifecycle ViewModel Compose | `2.8.6` |
-| Database | Room | `2.6.1` |
-| Networking | OkHttp | `4.12.0` |
-| JSON | Gson | `2.10.1` |
-| Min SDK | 24 (Android 7.0) | |
-| Target SDK | 36 | |
-| Language | Kotlin `2.0.21` + KSP | |
+| Layer      | Library                      | Version          |
+| ---------- | ---------------------------- | ---------------- |
+| UI         | Jetpack Compose + Material 3 | BOM `2024.09.00` |
+| Navigation | Navigation Compose           | `2.8.1`          |
+| ViewModel  | Lifecycle ViewModel Compose  | `2.8.6`          |
+| Database   | Room                         | `2.6.1`          |
+| Networking | OkHttp                       | `4.12.0`         |
+| JSON       | Gson                         | `2.10.1`         |
+| Min SDK    | 24 (Android 7.0)             |                  |
+| Target SDK | 36                           |                  |
+| Language   | Kotlin `2.0.21` + KSP        |                  |
 
 ---
 
@@ -92,7 +100,7 @@ cd NotificationInterceptor
 
 The app requires two special permissions that must be granted **manually** by the user.
 
-### 1. Notification Listener Access *(required for interception)*
+### 1. Notification Listener Access _(required for interception)_
 
 The app will show a red warning banner on the main screen if this is not granted.
 
@@ -101,7 +109,7 @@ The app will show a red warning banner on the main screen if this is not granted
 2. Find **Notification Interceptor** and toggle it **ON**
 3. Return to the app — the banner disappears automatically
 
-### 2. Post Notifications *(required for the dummy test button)*
+### 2. Post Notifications _(required for the dummy test button)_
 
 On Android 13+ (API 33), the app will prompt for this permission the first time you tap **Send Dummy**.
 
@@ -114,13 +122,13 @@ On Android 13+ (API 33), the app will prompt for this permission the first time 
 1. Tap **＋ Add Rule** on the main screen
 2. Fill in the fields:
 
-   | Field | Example | Notes |
-   |---|---|---|
-   | Rule Name | `WhatsApp → Slack` | Human-readable label |
-   | Target Apps | `com.whatsapp, com.telegram.messenger` | Comma-separated package names |
-   | API URL | `https://hooks.slack.com/services/…` | Must start with `http://` or `https://` |
-   | HTTP Method | `POST` | Choose from GET / POST / PUT / PATCH / DELETE |
-   | Custom Headers | `{"Authorization": "Bearer xyz"}` | Optional flat JSON object |
+   | Field          | Example                                | Notes                                         |
+   | -------------- | -------------------------------------- | --------------------------------------------- |
+   | Rule Name      | `WhatsApp → Slack`                     | Human-readable label                          |
+   | Target Apps    | `com.whatsapp, com.telegram.messenger` | Comma-separated package names                 |
+   | API URL        | `https://hooks.slack.com/services/…`   | Must start with `http://` or `https://`       |
+   | HTTP Method    | `POST`                                 | Choose from GET / POST / PUT / PATCH / DELETE |
+   | Custom Headers | `{"Authorization": "Bearer xyz"}`      | Optional flat JSON object                     |
 
 3. Tap **Save** — the rule appears in the list immediately
 
@@ -140,10 +148,10 @@ Every matched notification is forwarded as a JSON body:
 
 ```json
 {
-  "app_name":            "WhatsApp",
-  "notification_title":  "John Doe",
-  "notification_text":   "Hey, are you free tonight?",
-  "timestamp_ms":        1720432800000
+  "app_name": "WhatsApp",
+  "notification_title": "John Doe",
+  "notification_text": "Hey, are you free tonight?",
+  "timestamp_ms": 1720432800000
 }
 ```
 
@@ -191,11 +199,11 @@ Filter in Android Studio by tag to see real-time pipeline activity:
 tag:AppNotificationListener
 ```
 
-| Emoji | Meaning |
-|---|---|
-| ✅ | Notification successfully delivered to API |
-| ⚠️ | Server returned a non-2xx status |
-| ❌ | Network failure or unsupported method |
+| Emoji | Meaning                                    |
+| ----- | ------------------------------------------ |
+| ✅    | Notification successfully delivered to API |
+| ⚠️    | Server returned a non-2xx status           |
+| ❌    | Network failure or unsupported method      |
 
 ---
 
