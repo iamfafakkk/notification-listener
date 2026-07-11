@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -45,10 +46,17 @@ class AppNotificationListener : NotificationListenerService() {
     // ── Coroutine scope ───────────────────────────────────────────────────────
 
     /**
-     * Supervisor scope: a child job failure (e.g. one bad push) does not cancel sibling jobs.
-     * Cancelled in [onDestroy] to free resources when the service is unbound.
+     * Supervisor scope for all background work launched by this service.
+     *
+     * IMPORTANT: This is declared as a var and re-created in [onListenerConnected].
+     * Reason: [NotificationListenerService] is a long-lived component that Android can
+     * unbind and rebind WITHOUT calling [onDestroy] in between (e.g. when the user
+     * toggles notification access quickly, or after a phone restart). If we only
+     * cancel the scope in [onDestroy], a rebind after any previous cancellation would
+     * leave the scope permanently cancelled — silently dropping all future launches.
+     * Re-creating it on every [onListenerConnected] guarantees a live scope.
      */
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // ── Lazily-initialised collaborators ──────────────────────────────────────
 
@@ -65,6 +73,13 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        // Re-create the scope every time the system binds/rebinds this service.
+        // This handles the case where the scope was cancelled by a previous onDestroy()
+        // but the service is then rebound without going through onCreate() again.
+        if (!serviceScope.isActive) {
+            serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            Log.i(TAG, "Coroutine scope recreated on reconnect.")
+        }
         Log.i(TAG, "Notification listener connected.")
     }
 
@@ -83,7 +98,9 @@ class AppNotificationListener : NotificationListenerService() {
         sbn ?: return  // guard: paranoia null-check
 
         val packageName = sbn.packageName ?: return
-        val extras = sbn.notification?.extras ?: return
+        // sbn.notification can be null for some system/ongoing notifications
+        val notification = sbn.notification ?: return
+        val extras = notification.extras ?: return
 
         // Extract title and text from the notification extras bundle
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()

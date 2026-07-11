@@ -40,6 +40,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.karuhundeveloper.notification.data.local.entity.InterceptRule
@@ -115,9 +118,21 @@ fun MainScreen(
     val context = LocalContext.current
     val rules by viewModel.rules.collectAsStateWithLifecycle()
 
-    // Re-check listener permission when screen recomposes (e.g. user returns from Settings)
     var listenerEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
-    LaunchedEffect(Unit) { listenerEnabled = isNotificationListenerEnabled(context) }
+
+    // Re-check listener permission every time the screen comes back to foreground.
+    // LaunchedEffect(Unit) only fires once — if the user goes to Settings and grants
+    // access, the banner would never disappear without an ON_RESUME check.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                listenerEnabled = isNotificationListenerEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Runtime permission launcher for POST_NOTIFICATIONS (Android 13+)
     var notifyPermGranted by remember {

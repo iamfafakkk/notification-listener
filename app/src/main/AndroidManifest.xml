@@ -56,10 +56,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
 
-            <!-- Optional: restricts listener to notifications from all apps (default behaviour) -->
-            <meta-data
-                android:name="android.service.notification.default_filter_types"
-                android:value="conversations|alerting" />
+            <!--
+                default_filter_types intentionally REMOVED.
+                When set to "conversations|alerting", the system only delivers a subset of
+                notifications to this service, causing most app notifications (including our
+                own dummy test) to be silently dropped. Omitting this tag means the service
+                receives ALL posted notifications, which is what we want.
+            -->
 
         </service>
 
