@@ -1,6 +1,7 @@
 package com.karuhundeveloper.notification.service
 
 import android.app.Notification
+import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.os.Build
 import android.service.notification.NotificationListenerService
@@ -16,6 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -73,6 +77,7 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        _isConnected.value = true
         // Re-create the scope every time the system binds/rebinds this service.
         // This handles the case where the scope was cancelled by a previous onDestroy()
         // but the service is then rebound without going through onCreate() again.
@@ -85,7 +90,11 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        _isConnected.value = false
         Log.w(TAG, "Notification listener disconnected.")
+        // Attempt to request a rebind if we are disconnected unexpectedly.
+        // This is a hint to the system to try and bind again.
+        requestRebind(ComponentName(this, AppNotificationListener::class.java))
     }
 
     /**
@@ -121,6 +130,7 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        _isConnected.value = false
         // Cancel all in-flight coroutine jobs when the service is torn down
         serviceScope.cancel("AppNotificationListener destroyed")
         Log.i(TAG, "Service destroyed — coroutine scope cancelled.")
@@ -262,5 +272,8 @@ class AppNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val TAG = "AppNotificationListener"
+
+        private val _isConnected = MutableStateFlow(false)
+        val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     }
 }

@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,9 +47,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.karuhundeveloper.notification.data.local.entity.InterceptRule
+import com.karuhundeveloper.notification.service.AppNotificationListener
 import com.karuhundeveloper.notification.ui.component.MethodBadge
 import com.karuhundeveloper.notification.ui.theme.*
 import com.karuhundeveloper.notification.ui.viewmodel.RulesViewModel
+import com.karuhundeveloper.notification.util.ServiceUtils
 
 private const val DUMMY_CHANNEL_ID   = "dummy_test_channel"
 private const val DUMMY_NOTIFICATION_ID = 9_001
@@ -68,6 +71,14 @@ fun isNotificationListenerEnabled(context: Context): Boolean {
         "enabled_notification_listeners"
     ) ?: return false
     return flat.contains(context.packageName)
+}
+
+/**
+ * Returns true if the app is currently excluded from battery optimizations.
+ */
+fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,15 +130,22 @@ fun MainScreen(
     val rules by viewModel.rules.collectAsStateWithLifecycle()
 
     var listenerEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
+    val serviceConnected by AppNotificationListener.isConnected.collectAsStateWithLifecycle()
+    var ignoringBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
 
-    // Re-check listener permission every time the screen comes back to foreground.
-    // LaunchedEffect(Unit) only fires once — if the user goes to Settings and grants
-    // access, the banner would never disappear without an ON_RESUME check.
+    // Re-check listener permission and battery optimization every time the screen comes back to foreground.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 listenerEnabled = isNotificationListenerEnabled(context)
+                ignoringBatteryOptimizations = isIgnoringBatteryOptimizations(context)
+
+                // If permission is granted but service is NOT connected, try a quick toggle
+                // to kickstart the system binding.
+                if (listenerEnabled && !serviceConnected) {
+                    ServiceUtils.toggleNotificationListenerService(context)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -170,18 +188,33 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
-            // ── Listener permission banner ────────────────────────────────────
+            // ── Listener permission / Stalled service banner ──────────────────
             item {
                 AnimatedVisibility(
-                    visible = !listenerEnabled,
+                    visible = !listenerEnabled || !serviceConnected || !ignoringBatteryOptimizations,
                     enter = fadeIn() + slideInVertically(),
                     exit = fadeOut(tween(200))
                 ) {
-                    ListenerPermissionBanner {
-                        context.startActivity(
-                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!listenerEnabled) {
+                            ListenerPermissionBanner {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        } else if (!serviceConnected) {
+                            ServiceStalledBanner {
+                                ServiceUtils.toggleNotificationListenerService(context)
+                            }
+                        }
+
+                        if (listenerEnabled && !ignoringBatteryOptimizations) {
+                            BatteryOptimizationBanner {
+                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                context.startActivity(intent)
+                            }
+                        }
                     }
                 }
             }
@@ -289,6 +322,98 @@ private fun MainTopBar() {
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = NavyDeep)
     )
+}
+
+@Composable
+private fun BatteryOptimizationBanner(onOpenSettings: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = NavyElevated),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(CyanAccent.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.BatteryAlert, tint = CyanAccent, contentDescription = null)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Battery Optimization",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    fontSize = 13.sp
+                )
+                Text(
+                    "Disable optimization to prevent the system from killing the listener.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            TextButton(
+                onClick = onOpenSettings,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text("Settings", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyanAccent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServiceStalledBanner(onRepair: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF3B2D1A)), // Dark Amber
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFA000).copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.SyncProblem, tint = Color(0xFFFFA000), contentDescription = null)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Service stalled",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    fontSize = 13.sp
+                )
+                Text(
+                    "The system disconnected the listener. Tap Repair to restart it.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = onRepair,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA000)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Repair", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            }
+        }
+    }
 }
 
 @Composable
