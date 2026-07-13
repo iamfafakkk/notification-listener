@@ -52,6 +52,7 @@ import com.karuhundeveloper.notification.ui.component.MethodBadge
 import com.karuhundeveloper.notification.ui.theme.*
 import com.karuhundeveloper.notification.ui.viewmodel.RulesViewModel
 import com.karuhundeveloper.notification.util.ServiceUtils
+import kotlinx.coroutines.delay
 
 private const val DUMMY_CHANNEL_ID   = "dummy_test_channel"
 private const val DUMMY_NOTIFICATION_ID = 9_001
@@ -132,6 +133,7 @@ fun MainScreen(
     var listenerEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
     val serviceConnected by AppNotificationListener.isConnected.collectAsStateWithLifecycle()
     var ignoringBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var isRepairing by remember { mutableStateOf(false) }
 
     // Re-check listener permission and battery optimization every time the screen comes back to foreground.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -143,13 +145,35 @@ fun MainScreen(
 
                 // If permission is granted but service is NOT connected, try a quick toggle
                 // to kickstart the system binding.
-                if (listenerEnabled && !serviceConnected) {
+                if (listenerEnabled && !serviceConnected && !isRepairing) {
                     ServiceUtils.toggleNotificationListenerService(context)
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Auto-reset repairing state when service connects
+    LaunchedEffect(serviceConnected) {
+        if (serviceConnected) {
+            isRepairing = false
+        }
+    }
+
+    // Manual polling if repair is active but system is slow to report
+    LaunchedEffect(isRepairing) {
+        if (isRepairing) {
+            // Keep checking every second for 10 seconds or until connected
+            repeat(10) {
+                if (AppNotificationListener.isConnected.value) {
+                    isRepairing = false
+                    return@repeat
+                }
+                delay(1000)
+            }
+            isRepairing = false
+        }
     }
 
     // Runtime permission launcher for POST_NOTIFICATIONS (Android 13+)
@@ -204,7 +228,8 @@ fun MainScreen(
                                 )
                             }
                         } else if (!serviceConnected) {
-                            ServiceStalledBanner {
+                            ServiceStalledBanner(isRepairing = isRepairing) {
+                                isRepairing = true
                                 ServiceUtils.toggleNotificationListenerService(context)
                             }
                         }
@@ -370,7 +395,7 @@ private fun BatteryOptimizationBanner(onOpenSettings: () -> Unit) {
 }
 
 @Composable
-private fun ServiceStalledBanner(onRepair: () -> Unit) {
+private fun ServiceStalledBanner(isRepairing: Boolean, onRepair: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -387,18 +412,22 @@ private fun ServiceStalledBanner(onRepair: () -> Unit) {
                     .background(Color(0xFFFFA000).copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.SyncProblem, tint = Color(0xFFFFA000), contentDescription = null)
+                Icon(
+                    if (isRepairing) Icons.Default.Sync else Icons.Default.SyncProblem,
+                    tint = Color(0xFFFFA000),
+                    contentDescription = null
+                )
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Service stalled",
+                    if (isRepairing) "Repairing listener..." else "Service stalled",
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     fontSize = 13.sp
                 )
                 Text(
-                    "The system disconnected the listener. Tap Repair to restart it.",
+                    if (isRepairing) "Waiting for system to re-bind..." else "The system disconnected the listener. Tap Repair to restart it.",
                     color = TextSecondary,
                     fontSize = 12.sp
                 )
@@ -406,11 +435,20 @@ private fun ServiceStalledBanner(onRepair: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Button(
                 onClick = onRepair,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA000)),
+                enabled = !isRepairing,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFFA000),
+                    disabledContainerColor = Color(0xFFFFA000).copy(alpha = 0.5f)
+                ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Repair", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(
+                    if (isRepairing) "..." else "Repair",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
+                )
             }
         }
     }
